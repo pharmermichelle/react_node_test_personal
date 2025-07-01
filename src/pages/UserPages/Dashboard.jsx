@@ -1,6 +1,9 @@
 import React, { useEffect, useState, useRef } from "react";
 import { DndContext, closestCorners } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
 import { Bar } from "react-chartjs-2";
 import "chart.js/auto";
 import { toast, ToastContainer } from "react-toastify";
@@ -16,6 +19,9 @@ const UserDashboard = () => {
     "In Progress": [],
     Completed: [],
   });
+  const [hasInteracted, setHasInteracted] = useState(false);
+
+  const [searchTerm, setSearchTerm] = useState("");
 
   const [notes, setNotes] = useState(localStorage.getItem("notes") || "");
   const audioRef = useRef(new Audio(notificationSound));
@@ -29,7 +35,9 @@ const UserDashboard = () => {
     const storedTasks = JSON.parse(localStorage.getItem("tasks")) || [];
     const categorizedTasks = {
       "To Do": storedTasks.filter((task) => task.progress <= 40),
-      "In Progress": storedTasks.filter((task) => task.progress > 40 && task.progress <= 80),
+      "In Progress": storedTasks.filter(
+        (task) => task.progress > 40 && task.progress <= 80
+      ),
       Completed: storedTasks.filter((task) => task.progress > 80),
     };
     setTasks(categorizedTasks);
@@ -48,21 +56,45 @@ const UserDashboard = () => {
 
     tasks.forEach((task) => {
       if (task.deadline === today) {
-        showNotification(`🚨 Task Due Today: "${task.title}"`, "bg-red-500 text-white");
+        showNotification(
+          `🚨 Task Due Today: "${task.title}"`,
+          "bg-red-500 text-white"
+        );
       } else if (task.deadline === tomorrowStr) {
-        showNotification(`⏳ Task Due Tomorrow: "${task.title}"`, "bg-yellow-500 text-black");
+        showNotification(
+          `⏳ Task Due Tomorrow: "${task.title}"`,
+          "bg-yellow-500 text-black"
+        );
       }
     });
   };
+  useEffect(() => {
+    const handleInteraction = () => {
+      setHasInteracted(true);
+      document.removeEventListener("click", handleInteraction);
+    };
+
+    document.addEventListener("click", handleInteraction);
+
+    return () => {
+      document.removeEventListener("click", handleInteraction);
+    };
+  }, []);
 
   const showNotification = (message, bgClass) => {
     toast(
-      <div className={`p-2 rounded-lg shadow-md font-semibold text-lg ${bgClass}`}>
+      <div
+        className={`p-2 rounded-lg shadow-md font-semibold text-lg ${bgClass}`}
+      >
         {message}
       </div>,
       { position: "top-right", autoClose: 5000, hideProgressBar: false }
     );
-    audioRef.current.play();
+    if (hasInteracted) {
+      audioRef.current.play().catch((err) => {
+        console.warn("Autoplay prevented:", err);
+      });
+    }
   };
 
   const handleDragEnd = (event) => {
@@ -72,20 +104,36 @@ const UserDashboard = () => {
     const sourceColumn = Object.keys(tasks).find((column) =>
       tasks[column].some((task) => task.id === active.id)
     );
-    const targetColumn = Object.keys(tasks).find((column) => tasks[column].some((task) => task.id === over.id)) || over.id;
+    const targetColumn =
+      Object.keys(tasks).find((column) =>
+        tasks[column].some((task) => task.id === over.id)
+      ) || over.id;
 
     if (!sourceColumn || !targetColumn || sourceColumn === targetColumn) return;
 
     setTasks((prevTasks) => {
       const updatedTasks = { ...prevTasks };
-      const movedTask = updatedTasks[sourceColumn].find((task) => task.id === active.id);
-      updatedTasks[sourceColumn] = updatedTasks[sourceColumn].filter((task) => task.id !== active.id);
-      updatedTasks[targetColumn] = [...(updatedTasks[targetColumn] || []), movedTask];
+      const movedTask = updatedTasks[sourceColumn].find(
+        (task) => task.id === active.id
+      );
+      updatedTasks[sourceColumn] = updatedTasks[sourceColumn].filter(
+        (task) => task.id !== active.id
+      );
+      updatedTasks[targetColumn] = [
+        ...(updatedTasks[targetColumn] || []),
+        movedTask,
+      ];
+
+      // ✅ Store updated combined task list in localStorage here
+      const allTasks = [
+        ...updatedTasks["To Do"],
+        ...updatedTasks["In Progress"],
+        ...updatedTasks["Completed"],
+      ];
+      localStorage.setItem("tasks", JSON.stringify(allTasks));
 
       return updatedTasks;
     });
-
-    localStorage.setItem("tasks", JSON.stringify([...tasks["To Do"], ...tasks["In Progress"], ...tasks["Completed"]]));
   };
 
   // Task Analytics Chart Data (Bar Graph)
@@ -113,17 +161,44 @@ const UserDashboard = () => {
           🚀 User Dashboard
         </h2>
         <ToastContainer position="top-right" autoClose={5000} hideProgressBar />
+        {/* Search Filter */}
+        <div className="mb-6">
+          <input
+            type="text"
+            placeholder="🔍 Search tasks by title..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full max-w-md p-3 border border-gray-300 rounded-md shadow-sm"
+          />
+        </div>
 
         {/* Kanban Board */}
         <div className="glassmorphism p-4 rounded-xl shadow-lg bg-gradient-to-br from-white/30 to-white/10 backdrop-blur-lg border border-white/20">
-          <DndContext collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
+          <DndContext
+            collisionDetection={closestCorners}
+            onDragEnd={handleDragEnd}
+          >
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {Object.keys(tasks).map((columnKey) => (
-                <Column key={columnKey} title={columnKey} id={columnKey} className="w-[280px]">
-                  <SortableContext items={tasks[columnKey].map((task) => task.id)} strategy={verticalListSortingStrategy}>
-                    {tasks[columnKey].map((task) => (
-                      <SortableItem key={task.id} id={task.id} task={task} />
-                    ))}
+                <Column
+                  key={columnKey}
+                  id={columnKey}
+                  title={columnKey}
+                  className="w-[280px]"
+                >
+                  <SortableContext
+                    items={tasks[columnKey].map((task) => task.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    {tasks[columnKey]
+                      .filter((task) =>
+                        task.title
+                          .toLowerCase()
+                          .includes(searchTerm.toLowerCase())
+                      )
+                      .map((task) => (
+                        <SortableItem key={task.id} id={task.id} task={task} />
+                      ))}
                   </SortableContext>
                 </Column>
               ))}
@@ -143,7 +218,9 @@ const UserDashboard = () => {
 
           {/* Notes */}
           <div className="p-6 w-full lg:w-[590px] bg-green-900 text-white rounded-xl border-[12px] border-[#8B4501] shadow-lg flex flex-col">
-            <h2 className="text-2xl font-bold text-yellow-400 mb-2 text-center">📌 Notes</h2>
+            <h2 className="text-2xl font-bold text-yellow-400 mb-2 text-center">
+              📌 Notes
+            </h2>
 
             {/* Notes Input Field - Enlarged to match Task Analytics */}
             <textarea
